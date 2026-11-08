@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: dorwaila-hotel-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && python -m app.init_db && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dorwaila-hotel-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_MINUTES
+        value: "30"
+      - key: REPORTING_CURRENCY
+        value: SLE
+      - key: HOTEL_TIMEZONE
+        value: Africa/Freetown
+
+databases:
+  - name: dorwaila-hotel-db
+    databaseName: dorwaila
+    user: dorwaila
+    plan: free
