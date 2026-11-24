@@ -1,114 +1,62 @@
-# Dorwaila Hotel API
+# Dorwaila Hotel Management API
 
-Starter REST API for DORWAILA INN'S & SUIT HOTEL. The General Manager creates and deactivates department accounts and is the only role that can generate reports covering all departments. The API includes department greetings, operations activity, reservation/payment, expense approval, and worker shift/attendance endpoints.
+FastAPI starter for **DORWAILA INN'S & SUIT HOTEL, Reservation Road, Kenema**. The first General Manager (GM) registers using a setup key. The GM then creates department accounts, assigns duties and shifts, and alone can view cross-department reports. Staff can access only their own department's operational records. Passwords are stored as hashes.
 
-## Requirements
+## Run locally (PowerShell)
 
-- Python 3.12+ for local development, or Docker Desktop with Compose.
-- PostgreSQL for a shared deployment. SQLite can be used for local experimentation.
-
-## Run locally with SQLite
-
-From this `backend` directory in PowerShell:
+From this `backend` directory:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+Copy-Item .env.example .env
 ```
 
-Edit `.env`: set `SECRET_KEY` to a random value of at least 32 characters, and set `DATABASE_URL=sqlite:///./dorwaila_dev.db`.
-
-Then install and start:
+Edit `.env`: set `SECRET_KEY` to a random value of at least 32 characters, `DATABASE_URL=sqlite:///./dorwaila_dev.db`, and `GM_SETUP_KEY` to a long one-time setup secret. Do not commit `.env`.
 
 ```powershell
 python -m pip install -r requirements.txt
-python -m app.bootstrap_admin
+python -m app.init_db
 uvicorn app.main:app --reload
 ```
 
-Before running `bootstrap_admin`, set the first account details in the current PowerShell session; do not put a real password in source code:
+Open `http://127.0.0.1:8000/setup` for the first GM registration form. Enter the same `GM_SETUP_KEY`; then sign in at `/login`. Setup closes once a GM account exists. The GM can use `/docs` to create staff accounts. Use timestamps with timezone offsets (for Kenema, UTC is a practical API input); the hotel timezone is `Africa/Freetown`.
 
-```powershell
-$env:BOOTSTRAP_GM_EMAIL = "manager@your-hotel.example"
-$env:BOOTSTRAP_GM_NAME = "General Manager"
-$env:BOOTSTRAP_GM_PASSWORD = Read-Host "Initial General Manager password"
-python -m app.bootstrap_admin
-Remove-Item Env:BOOTSTRAP_GM_EMAIL, Env:BOOTSTRAP_GM_NAME, Env:BOOTSTRAP_GM_PASSWORD
-```
+The first GM registration needs name, address, email, ID number, username, 12+ character password, and shift start/end. Staff accounts add department, assigned duties, shift, and optionally the Admin & Finance expense-approver permission. Staff account deletion is a soft delete (deactivation) so historical reports remain intact.
 
-Open `http://127.0.0.1:8000/docs` for the interactive OpenAPI page. Use Swagger's **Authorize** button with the General Manager email as the OAuth2 username and the password. The General Manager can then create accounts for Admin & Finance, Front Desk, Kitchen, Housekeeping, Bar, Security, Storekeeping, and Operations.
+If the setup page is unavailable, use the CLI bootstrap instead. Set `BOOTSTRAP_GM_EMAIL`, `BOOTSTRAP_GM_USERNAME`, `BOOTSTRAP_GM_NAME`, `BOOTSTRAP_GM_ADDRESS`, `BOOTSTRAP_GM_ID_NUMBER`, `BOOTSTRAP_GM_PASSWORD`, `BOOTSTRAP_GM_SHIFT_START`, and `BOOTSTRAP_GM_SHIFT_END` in the shell, then run `python -m app.bootstrap_admin`. Shift values must be ISO timestamps with a timezone offset.
 
-## Run with Docker Compose and PostgreSQL
+## API overview
 
-Copy `.env.example` to `.env`, then set a unique `SECRET_KEY` (at least 32 characters) and a strong URL-safe `POSTGRES_PASSWORD`. From this directory:
+- Authentication: `POST /api/v1/auth/token` (username or email), `GET /api/v1/auth/me`, `GET /api/v1/welcome`.
+- First GM setup: `GET /setup`, `POST /api/v1/auth/register-general-manager` (requires `X-GM-Setup-Key`).
+- GM account and room setup: `/api/v1/gm/accounts`, `/api/v1/gm/rooms`.
+- Front Desk reservations and payments: `/api/v1/rooms`, `/api/v1/reservations`, `/api/v1/reservations/{id}/payments`.
+- Department activity: `/api/v1/departments/{department}/activities`.
+- Schedules and attendance: `/api/v1/attendance/shifts`, `/api/v1/attendance/clock-in`, `/api/v1/attendance/clock-out`.
+- Expenses: `/api/v1/expenses`; GM or an explicitly authorized Admin & Finance officer can approve/reject.
+- GM-only reports and audit logs: `/api/v1/gm/reports/summary`, `/finance`, `/attendance`, `/departments/{department}`, `/api/v1/gm/audit-logs`.
+
+Currency values are SLE, USD, and EUR. Finance totals stay separated by original currency; no exchange rates are guessed. Reservation records include guest name, phone, email, room, check-in/out, booking channel, record time, and payment method/details (including bank and cheque reference when applicable).
+
+## Docker Compose
+
+Copy `.env.example` to `.env`, set unique secrets and a strong database password, then from this directory:
 
 ```powershell
 docker compose up --build -d
-docker compose exec api python -m app.bootstrap_admin
 ```
 
-Pass the bootstrap values into the one-time container process. In PowerShell:
+Open `http://localhost:8000/setup`. The container runs the table initializer on startup.
 
-```powershell
-$env:BOOTSTRAP_GM_EMAIL = "manager@your-hotel.example"
-$env:BOOTSTRAP_GM_NAME = "General Manager"
-$env:BOOTSTRAP_GM_PASSWORD = Read-Host "Initial General Manager password"
-docker compose exec -e BOOTSTRAP_GM_EMAIL -e BOOTSTRAP_GM_NAME -e BOOTSTRAP_GM_PASSWORD api python -m app.bootstrap_admin
-Remove-Item Env:BOOTSTRAP_GM_EMAIL, Env:BOOTSTRAP_GM_NAME, Env:BOOTSTRAP_GM_PASSWORD
-```
+## Deploy with Render
 
-The API is available at `http://localhost:8000` for local use; production deployments must terminate HTTPS and restrict database access.
+The repository includes a root `render.yaml` Blueprint. Push the repository to a Git provider, then in Render choose **New → Blueprint**, connect it, review the web service and PostgreSQL resources, and deploy. Render sets `SECRET_KEY`, `DATABASE_URL`, and `GM_SETUP_KEY`; check the web service environment page and copy the generated `GM_SETUP_KEY` securely. Open `https://YOUR-SERVICE.onrender.com/setup`, register the first GM, and then use `/login` or `/docs`.
 
-## Implemented endpoint groups
+For a managed business system, use a paid persistent PostgreSQL plan with backups and a paid web service. Render's free web services can sleep and free Postgres expires after 30 days without managed backups. Check Render's [Free instance limits](https://render.com/docs/free), [Blueprint reference](https://render.com/docs/blueprint-spec), and [FastAPI deployment guide](https://render.com/docs/deploy-fastapi) before deployment because plan details can change.
 
-- `POST /api/v1/auth/token`, `GET /api/v1/auth/me`
-- General Manager account management: `GET/POST /api/v1/manager/users`, `DELETE /api/v1/manager/users/{id}`, and enable/disable account endpoints. Delete deactivates the account so historical records remain.
-- Welcome message: `GET /api/v1/welcome` returns hotel name, Dorwaila Avenue, the signed-in user's department, and the reservation endpoint.
-- Room and reservation operations: `/api/v1/rooms`, `/api/v1/reservations`
-- Reservation payments: `/api/v1/reservations/{id}/payments`
-- Department activity: `/api/v1/departments/{department}/activities`
-- Shift scheduling: Operations or the General Manager creates assignments using `POST /api/v1/attendance/shifts`.
-- Attendance: staff view their own shifts/records and use `POST /api/v1/attendance/clock-in` and `/clock-out` for an assigned active shift.
-- Expenses and approvals: `/api/v1/expenses`
-- General Manager-only reporting and audit history: `/api/v1/manager/reports/*`, `/api/v1/manager/audit-logs`
+## Scope and production work
 
-FastAPI's generated API documentation lists request fields and response shapes.
+This is an API starter with basic login/setup pages, not a complete hotel front-end. It does not yet implement inventory item/stock workflows, payroll, exchange-rate conversion, receipt uploads, refunds, advanced room locking, or automated absence/overtime rules. Before storing real records, add versioned database migrations, HTTPS, backups and restore checks, monitoring, rate limiting, MFA for GM, privacy retention rules, and security review. Do not use free hosting for real guest or financial records.
 
-## Deploy online with Render
-
-The repository includes a root-level `render.yaml` Blueprint for a demo API and PostgreSQL database. Render's Blueprint connects the service to Postgres, generates `SECRET_KEY`, runs the table setup command, and uses `/api/v1/health` for health checks.
-
-1. Commit the project to a Git provider supported by Render (GitHub, GitLab, or Bitbucket). Do not commit `backend/.env` or real credentials.
-2. In Render, choose **New → Blueprint**, connect the repository, and confirm the resources shown in `render.yaml`.
-3. Wait for the web service and Postgres database to become ready. The deploy URL appears on the web service page.
-4. Open `https://YOUR-SERVICE.onrender.com/docs` and confirm the API documentation loads.
-5. Create the initial General Manager account once. Copy the Postgres **external** connection string from the Render database page. In a local PowerShell terminal, from `backend`, temporarily set it as `DATABASE_URL`, set the bootstrap account variables, and run:
-
-   ```powershell
-   $env:DATABASE_URL = "<Render external PostgreSQL connection string>"
-   $env:BOOTSTRAP_GM_EMAIL = "manager@your-hotel.example"
-   $env:BOOTSTRAP_GM_NAME = "General Manager"
-   $env:BOOTSTRAP_GM_PASSWORD = Read-Host "Choose a strong password (12+ characters)"
-   python -m app.bootstrap_admin
-   Remove-Item Env:DATABASE_URL, Env:BOOTSTRAP_GM_EMAIL, Env:BOOTSTRAP_GM_NAME, Env:BOOTSTRAP_GM_PASSWORD
-   ```
-
-   If the database rejects the external connection, allow your current public IP in the database's IP allow list, run the bootstrap, then remove that temporary allow-list entry. Keep the connection string private.
-6. Return to `/docs`, click **Authorize**, enter the General Manager email/password, and use `GET /api/v1/welcome` or `GET /api/v1/manager/users` to confirm access.
-7. The live API documentation is at `/docs`; the health check is at `/api/v1/health`.
-
-Render's Free web services can spin down when idle, and Free Postgres databases expire after 30 days and do not include managed backups. Use paid services/database with backups before entering real guest, employee, or financial records. See [Render Free instance limits](https://render.com/docs/free), [Render Blueprint reference](https://render.com/docs/blueprint-spec), and [Render FastAPI deploy guide](https://render.com/docs/deploy-fastapi).
-
-## Important limitations before production
-
-- The bootstrap command creates tables for a fresh database. Use versioned Alembic migrations before deploying schema changes to production.
-- Room conflict checking is implemented in application logic; high-concurrency production booking needs a database-level exclusion/locking strategy to prevent two simultaneous requests from reserving the same room.
-- Report totals are grouped by original currency. Exchange-rate capture and SLE conversion, receipt uploads, inventory workflows, HR records, and full department-specific screens are not implemented yet.
-- Shift schedules and clock records are implemented, but automated overtime rules, leave, absence reasons, payroll integration, and manager correction workflows are not.
-- The first increment records payments but does not yet provide refund/void workflows or accounting-ledger reconciliation.
-- Production deployment also needs HTTPS, a managed secret store, database and document backups, restore checks, monitoring, and a General Manager recovery procedure.
-
-## Design reference
-
-See [`../docs/SYSTEM_DESIGN.md`](../docs/SYSTEM_DESIGN.md) for the full product requirements and target data model.
+See [`../docs/SYSTEM_DESIGN.md`](../docs/SYSTEM_DESIGN.md) for the department duties and access model.

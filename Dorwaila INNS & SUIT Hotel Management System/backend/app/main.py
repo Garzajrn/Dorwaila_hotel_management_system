@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
+import hmac
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
@@ -15,7 +17,8 @@ from app.models import (
 )
 from app.config import settings
 from app.schemas import (
-    ActivityCreate, ActivityRead, AttendanceRead, ExpenseCreate, ExpenseDecisionInput, ExpenseRead, PaymentCreate, PaymentRead,
+    ActiveDepartmentCode, ActivityCreate, ActivityRead, AttendanceRead, ExpenseCreate, ExpenseDecisionInput,
+    ExpenseRead, GeneralManagerRegistration, PaymentCreate, PaymentRead,
     ReservationCreate, ReservationRead, ReservationStatusUpdate, RoomCreate,
     RoomRead, ShiftCreate, ShiftRead, UserCreate, UserRead, WelcomeRead,
 )
@@ -24,11 +27,48 @@ from app.security import (
     require_admin, verify_password,
 )
 
-app = FastAPI(title="Dorwaila INN's & SUIT Hotel Management API", version="0.2.0")
+app = FastAPI(title="DORWAILA INN'S & SUIT HOTEL, Reservation Road, Kenema", version="0.3.0")
 Db = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(current_user)]
 AdminUser = Annotated[User, Depends(require_admin)]
-OPERATIONAL_DEPARTMENTS = tuple(dept for dept in DepartmentCode if dept != DepartmentCode.general_manager)
+DEPARTMENT_CODES = (
+    DepartmentCode.general_manager,
+    DepartmentCode.admin_finance,
+    DepartmentCode.front_desk,
+    DepartmentCode.kitchen,
+    DepartmentCode.housekeeping,
+    DepartmentCode.bar,
+    DepartmentCode.security,
+    DepartmentCode.storekeeping,
+    DepartmentCode.operations,
+)
+
+BRAND = "DORWAILA INN'S & SUIT HOTEL"
+HOTEL_ADDRESS = "Reservation Road, Kenema"
+
+FIRST_RUN_SETUP_HTML = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>First-time General Manager setup</title>
+<style>body{{font:16px system-ui;background:#f4f6f8;color:#17202a;margin:0}}main{{max-width:680px;margin:4vh auto;background:white;padding:2rem;border-radius:14px;box-shadow:0 8px 32px #15253618}}h1{{margin-bottom:.2rem}}.muted{{color:#52606d}}form{{display:grid;grid-template-columns:1fr 1fr;gap:1rem}}label{{display:grid;gap:.35rem}}input{{padding:.7rem;border:1px solid #aab4bf;border-radius:7px;font:inherit}}.wide{{grid-column:1/-1}}button{{padding:.8rem;border:0;border-radius:7px;background:#155e55;color:white;font-weight:700;font:inherit;cursor:pointer}}#message{{margin-top:1rem;white-space:pre-wrap}}@media(max-width:600px){{form{{grid-template-columns:1fr}}.wide{{grid-column:auto}}}}</style></head>
+<body><main><h1>{BRAND}</h1><p class="muted">{HOTEL_ADDRESS} · First-time General Manager registration</p>
+<p>Register the first General Manager account. The setup key is supplied by the system installer and this setup closes after registration.</p>
+<form id="setup"><label>Full name<input name="full_name" required autocomplete="name"></label>
+<label>Username<input name="username" required minlength="3" autocomplete="username"></label>
+<label>Email<input name="email" type="email" required autocomplete="email"></label>
+<label>ID number<input name="id_number" required></label>
+<label class="wide">Address<input name="address" required value="Reservation Road, Kenema" autocomplete="street-address"></label>
+<label>Password<input name="password" type="password" required minlength="12" autocomplete="new-password"></label>
+<label>One-time setup key<input name="setup_key" type="password" required autocomplete="off"></label>
+<label>Shift starts<input name="shift_start_at" type="datetime-local" required></label>
+<label>Shift ends<input name="shift_end_at" type="datetime-local" required></label>
+<button class="wide" type="submit">Create General Manager account</button></form><div id="message" role="status"></div></main>
+<script>const form=document.querySelector('#setup'),message=document.querySelector('#message');form.addEventListener('submit',async e=>{{e.preventDefault();message.textContent='Registering…';const d=new FormData(form);const data=Object.fromEntries(d.entries());const key=data.setup_key;delete data.setup_key;data.shift_start_at=new Date(data.shift_start_at).toISOString();data.shift_end_at=new Date(data.shift_end_at).toISOString();try{{const r=await fetch('/api/v1/auth/register-general-manager',{{method:'POST',headers:{{'Content-Type':'application/json','X-GM-Setup-Key':key}},body:JSON.stringify(data)}});const result=await r.json();if(!r.ok)throw new Error(result.detail||'Registration failed');message.textContent='Account created. Sign in with your username at /login.';form.reset();}}catch(err){{message.textContent=err.message;}}}});</script></body></html>"""
+
+LOGIN_HTML = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hotel staff sign in</title>
+<style>body{{font:16px system-ui;background:#f4f6f8;color:#17202a;margin:0}}main{{max-width:440px;margin:10vh auto;background:white;padding:2rem;border-radius:14px;box-shadow:0 8px 32px #15253618}}form{{display:grid;gap:1rem}}label{{display:grid;gap:.35rem}}input{{padding:.75rem;border:1px solid #aab4bf;border-radius:7px;font:inherit}}button{{padding:.8rem;border:0;border-radius:7px;background:#155e55;color:white;font-weight:700;font:inherit;cursor:pointer}}#message{{margin-top:1rem;white-space:pre-wrap}}</style></head>
+<body><main><h1>{BRAND}</h1><p>{HOTEL_ADDRESS}</p><h2>Sign in</h2><form id="login"><label>Username or email<input name="username" required autocomplete="username"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button>Sign in</button></form><p id="message" role="status"></p><a href="/docs">Open API interface</a></main>
+<script>const form=document.querySelector('#login'),message=document.querySelector('#message');form.addEventListener('submit',async e=>{{e.preventDefault();message.textContent='Signing in…';const data=new URLSearchParams(new FormData(form));try{{const r=await fetch('/api/v1/auth/token',{{method:'POST',headers:{{'Content-Type':'application/x-www-form-urlencoded'}},body:data}});const token=await r.json();if(!r.ok)throw new Error(token.detail||'Sign-in failed');const w=await fetch('/api/v1/welcome',{{headers:{{Authorization:'Bearer '+token.access_token}}}});const welcome=await w.json();message.textContent=welcome.welcome_message+' Use /docs for your permitted department operations.';form.reset();}}catch(err){{message.textContent=err.message;}}}});</script></body></html>"""
 
 
 def write_audit(db: Session, actor_id: UUID | None, action: str, target_type: str, target_id: str, details: str = "") -> None:
@@ -40,11 +80,6 @@ def require_front_desk(user: User) -> None:
         raise HTTPException(status_code=403, detail="Front desk permission required")
 
 
-def require_manager_or_operations(user: User) -> None:
-    if not user.is_admin and user.department != DepartmentCode.operations:
-        raise HTTPException(status_code=403, detail="General Manager or Operations permission required")
-
-
 @app.get("/api/v1/health")
 def health():
     return {"status": "ok"}
@@ -52,13 +87,29 @@ def health():
 
 @app.get("/", include_in_schema=False)
 def root():
-    return {"message": "Dorwaila INN's & SUIT Hotel Management API is running", "docs": "/docs"}
+    return {"hotel": "DORWAILA INN'S & SUIT HOTEL", "address": "Reservation Road, Kenema", "login": "/login", "first_run_setup": "/setup", "api_docs": "/docs"}
+
+
+@app.get("/setup", response_class=HTMLResponse, include_in_schema=False)
+def setup_page(db: Db):
+    registered = db.scalar(select(User.id).where(User.is_admin.is_(True))) is not None
+    if registered:
+        return HTMLResponse(
+            "<main><h1>General Manager registration is complete</h1><a href='/login'>Go to login</a></main>",
+            status_code=409,
+        )
+    return HTMLResponse(FIRST_RUN_SETUP_HTML)
+
+
+@app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+def login_page():
+    return HTMLResponse(LOGIN_HTML)
 
 
 @app.post("/api/v1/auth/token")
 def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: Db):
-    email = form.username.strip().lower()
-    user = db.scalar(select(User).where(User.email == email))
+    username = form.username.strip().lower()
+    user = db.scalar(select(User).where(or_(User.username == username, User.email == username)))
     # Hash a dummy value on unknown accounts to reduce account-enumeration timing differences.
     if not verify_password(form.password, user.password_hash if user else _dummy_password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password", headers={"WWW-Authenticate": "Bearer"})
@@ -71,6 +122,54 @@ def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: Db):
     return {"access_token": create_access_token(user.id), "token_type": "bearer"}
 
 
+@app.post("/api/v1/auth/register-general-manager", response_model=UserRead, status_code=201)
+def register_general_manager(
+    payload: GeneralManagerRegistration,
+    db: Db,
+    setup_key: Annotated[str | None, Header(alias="X-GM-Setup-Key")] = None,
+):
+    if not settings.gm_setup_key:
+        raise HTTPException(status_code=503, detail="GM_SETUP_KEY is not configured")
+    if not setup_key or not hmac.compare_digest(setup_key, settings.gm_setup_key):
+        raise HTTPException(status_code=403, detail="Invalid setup key")
+    if db.scalar(select(User.id).where(User.is_admin.is_(True))):
+        raise HTTPException(status_code=409, detail="The General Manager account is already registered")
+    email = payload.email.strip().lower()
+    username = payload.username.strip().lower()
+    id_number = payload.id_number.strip()
+    duplicate = db.scalar(
+        select(User.id).where(or_(User.email == email, User.username == username, User.id_number == id_number)).limit(1)
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Email, username, or ID number is already registered")
+    manager = User(
+        email=email,
+        username=username,
+        full_name=payload.full_name.strip(),
+        address=payload.address.strip(),
+        id_number=id_number,
+        duties="Leads hotel operations, staff, service quality, compliance, and departmental reporting.",
+        password_hash=hash_password(payload.password),
+        is_admin=True,
+        is_active=True,
+        department=DepartmentCode.general_manager,
+    )
+    db.add(manager)
+    db.flush()
+    db.add(ShiftAssignment(
+        employee_id=manager.id,
+        department=DepartmentCode.general_manager,
+        shift_start_at=payload.shift_start_at,
+        shift_end_at=payload.shift_end_at,
+        assigned_by=manager.id,
+        notes="Initial General Manager shift",
+    ))
+    write_audit(db, manager.id, "register_general_manager", "user", str(manager.id))
+    db.commit()
+    db.refresh(manager)
+    return manager
+
+
 @app.get("/api/v1/auth/me", response_model=UserRead)
 def me(user: CurrentUser):
     return user
@@ -78,47 +177,75 @@ def me(user: CurrentUser):
 
 @app.get("/api/v1/welcome", response_model=WelcomeRead)
 def department_welcome(user: CurrentUser):
-    department = "General Manager" if user.is_admin else (user.department.value.replace("_", " ").title() if user.department else "Department")
+    names = {
+        DepartmentCode.general_manager: "General Manager",
+        DepartmentCode.admin_finance: "Admin & Finance Management",
+        DepartmentCode.front_desk: "Front Desk / Reception",
+        DepartmentCode.kitchen: "Kitchen Management",
+        DepartmentCode.housekeeping: "Housekeeping Management",
+        DepartmentCode.bar: "Bar Attendance Management",
+        DepartmentCode.security: "Security System Management",
+        DepartmentCode.storekeeping: "Storekeeping / Warehouse Management",
+        DepartmentCode.operations: "Operations Management",
+    }
+    department = "General Manager" if user.is_admin else names.get(user.department, "Department")
     return WelcomeRead(
-        hotel_name="Dorwaila INN's & SUIT Hotel",
-        address="Dorwaila Avenue",
+        hotel_name=BRAND,
+        address=HOTEL_ADDRESS,
         department=department,
-        welcome_message=f"Welcome to {department} at Dorwaila INN's & SUIT Hotel, Dorwaila Avenue.",
+        welcome_message=f"Welcome to {department} at {BRAND}, {HOTEL_ADDRESS}.",
         reservation_endpoint="/api/v1/reservations",
     )
 
 
-@app.get("/api/v1/manager/users", response_model=list[UserRead])
+@app.get("/api/v1/gm/accounts", response_model=list[UserRead])
 def list_users(db: Db, admin: AdminUser):
     return list(db.scalars(select(User).order_by(User.created_at.desc())))
 
 
-@app.post("/api/v1/manager/users", response_model=UserRead, status_code=201)
+@app.post("/api/v1/gm/accounts", response_model=UserRead, status_code=201)
 def create_user(payload: UserCreate, db: Db, admin: AdminUser):
-    if payload.department == DepartmentCode.general_manager:
-        raise HTTPException(status_code=422, detail="The General Manager account is provisioned separately")
-    if payload.expense_approver and payload.department != DepartmentCode.admin_finance:
+    if payload.expense_approver and payload.department != ActiveDepartmentCode.admin_finance:
         raise HTTPException(status_code=422, detail="Expense approver permission is limited to Admin & Finance accounts")
     email = payload.email.strip().lower()
-    if db.scalar(select(User.id).where(User.email == email)):
-        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    username = payload.username.strip().lower()
+    id_number = payload.id_number.strip()
+    duplicate = db.scalar(
+        select(User.id).where(or_(User.email == email, User.username == username, User.id_number == id_number)).limit(1)
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Email, username, or ID number is already registered")
     user = User(
         email=email,
+        username=username,
         full_name=payload.full_name.strip(),
+        address=payload.address.strip(),
+        id_number=id_number,
+        duties=payload.duties.strip(),
         password_hash=hash_password(payload.password),
-        department=payload.department,
+        department=DepartmentCode(payload.department.value),
         expense_approver=payload.expense_approver,
         is_admin=False,
     )
     db.add(user)
     db.flush()
+    shift = ShiftAssignment(
+        employee_id=user.id,
+        department=user.department,
+        shift_start_at=payload.shift_start_at,
+        shift_end_at=payload.shift_end_at,
+        notes=payload.shift_notes,
+        assigned_by=admin.id,
+    )
+    db.add(shift)
     write_audit(db, admin.id, "create_user", "user", str(user.id), f"department={payload.department.value}")
+    write_audit(db, admin.id, "assign_shift", "shift", str(shift.id), f"employee={user.id}")
     db.commit()
     db.refresh(user)
     return user
 
 
-@app.patch("/api/v1/manager/users/{user_id}/disable", response_model=UserRead)
+@app.patch("/api/v1/gm/accounts/{user_id}/disable", response_model=UserRead)
 def disable_user(user_id: UUID, db: Db, admin: AdminUser):
     user = db.get(User, user_id)
     if not user:
@@ -136,12 +263,12 @@ def disable_user(user_id: UUID, db: Db, admin: AdminUser):
     return user
 
 
-@app.delete("/api/v1/manager/users/{user_id}", response_model=UserRead)
+@app.delete("/api/v1/gm/accounts/{user_id}", response_model=UserRead)
 def delete_user(user_id: UUID, db: Db, admin: AdminUser):
     return disable_user(user_id, db, admin)
 
 
-@app.patch("/api/v1/manager/users/{user_id}/enable", response_model=UserRead)
+@app.patch("/api/v1/gm/accounts/{user_id}/enable", response_model=UserRead)
 def enable_user(user_id: UUID, db: Db, admin: AdminUser):
     user = db.get(User, user_id)
     if not user:
@@ -153,7 +280,7 @@ def enable_user(user_id: UUID, db: Db, admin: AdminUser):
     return user
 
 
-@app.post("/api/v1/manager/rooms", response_model=RoomRead, status_code=201)
+@app.post("/api/v1/gm/rooms", response_model=RoomRead, status_code=201)
 def create_room(payload: RoomCreate, db: Db, admin: AdminUser):
     room_number = payload.room_number.strip()
     if db.scalar(select(Room.id).where(Room.room_number == room_number)):
@@ -287,11 +414,12 @@ def list_reservation_payments(reservation_id: UUID, db: Db, user: CurrentUser):
 
 
 @app.post("/api/v1/departments/{department}/activities", response_model=ActivityRead, status_code=201)
-def create_department_activity(department: DepartmentCode, payload: ActivityCreate, db: Db, user: CurrentUser):
-    if not user.is_admin and user.department != department:
+def create_department_activity(department: ActiveDepartmentCode, payload: ActivityCreate, db: Db, user: CurrentUser):
+    department_code = DepartmentCode(department.value)
+    if not user.is_admin and user.department != department_code:
         raise HTTPException(status_code=403, detail="You may only record activity for your department")
     activity = DepartmentActivity(
-        department=department,
+        department=department_code,
         title=payload.title.strip(),
         details=payload.details.strip(),
         recorded_by=user.id,
@@ -305,19 +433,19 @@ def create_department_activity(department: DepartmentCode, payload: ActivityCrea
 
 
 @app.get("/api/v1/departments/{department}/activities", response_model=list[ActivityRead])
-def list_department_activities(department: DepartmentCode, db: Db, user: CurrentUser, limit: int = 100):
-    if not user.is_admin and user.department != department:
+def list_department_activities(department: ActiveDepartmentCode, db: Db, user: CurrentUser, limit: int = 100):
+    department_code = DepartmentCode(department.value)
+    if not user.is_admin and user.department != department_code:
         raise HTTPException(status_code=403, detail="You may only access activity for your department")
     safe_limit = max(1, min(limit, 500))
-    query = select(DepartmentActivity).where(DepartmentActivity.department == department)
+    query = select(DepartmentActivity).where(DepartmentActivity.department == department_code)
     return list(db.scalars(query.order_by(DepartmentActivity.recorded_at.desc()).limit(safe_limit)))
 
 
 @app.post("/api/v1/attendance/shifts", response_model=ShiftRead, status_code=201)
-def assign_shift(payload: ShiftCreate, db: Db, user: CurrentUser):
-    require_manager_or_operations(user)
+def assign_shift(payload: ShiftCreate, db: Db, user: AdminUser):
     employee = db.get(User, payload.employee_id)
-    if not employee or not employee.is_active or not employee.department or employee.is_admin:
+    if not employee or not employee.is_active or employee.department not in DEPARTMENT_CODES:
         raise HTTPException(status_code=404, detail="Active department employee not found")
     overlapping = db.scalar(
         select(ShiftAssignment.id).where(
@@ -347,7 +475,7 @@ def assign_shift(payload: ShiftCreate, db: Db, user: CurrentUser):
 @app.get("/api/v1/attendance/shifts", response_model=list[ShiftRead])
 def list_shifts(db: Db, user: CurrentUser, from_at: datetime | None = None, to_at: datetime | None = None):
     query = select(ShiftAssignment).order_by(ShiftAssignment.shift_start_at)
-    if not user.is_admin and user.department != DepartmentCode.operations:
+    if not user.is_admin:
         query = query.where(ShiftAssignment.employee_id == user.id)
     if from_at:
         query = query.where(ShiftAssignment.shift_end_at >= from_at)
@@ -365,8 +493,6 @@ def my_attendance_records(db: Db, user: CurrentUser, limit: int = 100):
 
 @app.post("/api/v1/attendance/clock-in", response_model=AttendanceRead, status_code=201)
 def clock_in(db: Db, user: CurrentUser):
-    if user.is_admin:
-        raise HTTPException(status_code=403, detail="General Manager accounts do not clock in through staff attendance")
     now = now_utc()
     shift = db.scalar(
         select(ShiftAssignment).where(
@@ -410,7 +536,9 @@ def clock_out(db: Db, user: CurrentUser):
 
 @app.post("/api/v1/expenses", response_model=ExpenseRead, status_code=201)
 def submit_expense(payload: ExpenseCreate, db: Db, user: CurrentUser):
-    department = payload.department or user.department
+    department = DepartmentCode(payload.department.value) if payload.department else user.department
+    if department is not None and department not in DEPARTMENT_CODES:
+        raise HTTPException(status_code=422, detail="Department is not active")
     if not user.is_admin and (department is None or user.department != department):
         raise HTTPException(status_code=403, detail="Expense must belong to your assigned department")
     if department is None:
@@ -464,7 +592,7 @@ def decide_expense(expense_id: UUID, payload: ExpenseDecisionInput, db: Db, user
     return expense
 
 
-@app.get("/api/v1/manager/reports/finance")
+@app.get("/api/v1/gm/reports/finance")
 def finance_report(db: Db, admin: AdminUser, from_at: datetime | None = None, to_at: datetime | None = None):
     expense_query = select(Expense.department, Expense.currency, Expense.status, func.sum(Expense.amount).label("total"))
     if from_at:
@@ -472,12 +600,12 @@ def finance_report(db: Db, admin: AdminUser, from_at: datetime | None = None, to
     if to_at:
         expense_query = expense_query.where(Expense.submitted_at <= to_at)
     expense_rows = db.execute(expense_query.group_by(Expense.department, Expense.currency, Expense.status)).all()
-    payment_query = select(Payment.currency, Payment.status, func.sum(Payment.amount).label("total"))
+    payment_query = select(Payment.currency, Payment.method, Payment.status, func.sum(Payment.amount).label("total"))
     if from_at:
         payment_query = payment_query.where(Payment.paid_at >= from_at)
     if to_at:
         payment_query = payment_query.where(Payment.paid_at <= to_at)
-    payment_rows = db.execute(payment_query.group_by(Payment.currency, Payment.status)).all()
+    payment_rows = db.execute(payment_query.group_by(Payment.currency, Payment.method, Payment.status)).all()
     write_audit(db, admin.id, "generate_finance_report", "report", "finance", f"from={from_at};to={to_at}")
     db.commit()
     return {
@@ -487,27 +615,60 @@ def finance_report(db: Db, admin: AdminUser, from_at: datetime | None = None, to
             {"department": dept.value, "currency": currency, "status": state.value, "amount": str(total)}
             for dept, currency, state, total in expense_rows
         ],
-        "payment_totals_by_currency_status": [
-            {"currency": currency, "status": state.value, "amount": str(total)}
-            for currency, state, total in payment_rows
+        "payment_totals_by_currency_method_status": [
+            {"currency": currency, "method": method.value, "status": state.value, "amount": str(total)}
+            for currency, method, state, total in payment_rows
         ],
         "note": "Totals remain grouped by original currency. Exchange-rate conversion is not implemented yet.",
     }
 
 
-@app.get("/api/v1/manager/reports/departments/{department}")
+def _front_desk_report(db: Session, from_at: datetime | None, to_at: datetime | None):
+    query = select(Reservation).order_by(Reservation.recorded_at.desc()).limit(500)
+    if from_at:
+        query = query.where(Reservation.recorded_at >= from_at)
+    if to_at:
+        query = query.where(Reservation.recorded_at <= to_at)
+    reservations = db.scalars(query).all()
+    results = []
+    for reservation in reservations:
+        guest = db.get(Guest, reservation.guest_id)
+        room = db.get(Room, reservation.room_id)
+        payments = db.scalars(
+            select(Payment).where(Payment.reservation_id == reservation.id).order_by(Payment.paid_at)
+        ).all()
+        results.append({
+            "reservation_id": str(reservation.id),
+            "guest": {"name": guest.name, "phone": guest.phone, "email": guest.email} if guest else None,
+            "room": {"room_number": room.room_number, "room_type": room.room_type} if room else None,
+            "check_in_at": reservation.check_in_at,
+            "check_out_at": reservation.check_out_at,
+            "recorded_at": reservation.recorded_at,
+            "booking_channel": reservation.booking_channel.value,
+            "status": reservation.status.value,
+            "payments": [
+                {"amount": str(payment.amount), "currency": payment.currency,
+                 "method": payment.method.value, "status": payment.status.value,
+                 "bank_name": payment.bank_name, "cheque_number": payment.cheque_number,
+                 "transaction_reference": payment.transaction_reference, "paid_at": payment.paid_at}
+                for payment in payments
+            ],
+        })
+    return results
+
+
+@app.get("/api/v1/gm/reports/departments/{department}")
 def department_report(
-    department: DepartmentCode,
+    department: ActiveDepartmentCode,
     db: Db,
     admin: AdminUser,
     from_at: datetime | None = None,
     to_at: datetime | None = None,
 ):
-    if department == DepartmentCode.general_manager:
-        raise HTTPException(status_code=422, detail="Reports are for operational departments")
-    activity_filter = [DepartmentActivity.department == department]
-    expense_filter = [Expense.department == department]
-    shift_filter = [ShiftAssignment.department == department]
+    department_code = DepartmentCode(department.value)
+    activity_filter = [DepartmentActivity.department == department_code]
+    expense_filter = [Expense.department == department_code]
+    shift_filter = [ShiftAssignment.department == department_code]
     if from_at:
         activity_filter.append(DepartmentActivity.recorded_at >= from_at)
         expense_filter.append(Expense.submitted_at >= from_at)
@@ -535,7 +696,7 @@ def department_report(
         .order_by(ShiftAssignment.shift_start_at.desc()).limit(500)
     ).all()
     shift_count = db.scalar(select(func.count(ShiftAssignment.id)).where(*shift_filter)) or 0
-    attendance_filter = [ShiftAssignment.department == department]
+    attendance_filter = [ShiftAssignment.department == department_code]
     if from_at:
         attendance_filter.append(ShiftAssignment.shift_start_at >= from_at)
     if to_at:
@@ -545,10 +706,24 @@ def department_report(
         .join(ShiftAssignment, AttendanceRecord.shift_id == ShiftAssignment.id)
         .where(*attendance_filter)
     ) or 0
-    write_audit(db, admin.id, "generate_department_report", "department", department.value)
+    attendance_rows = db.execute(
+        select(AttendanceRecord, User)
+        .join(ShiftAssignment, AttendanceRecord.shift_id == ShiftAssignment.id)
+        .join(User, AttendanceRecord.employee_id == User.id)
+        .where(*attendance_filter)
+        .order_by(AttendanceRecord.clock_in_at.desc()).limit(500)
+    ).all()
+    attendance_by_shift = {record.shift_id: record for record, _employee in attendance_rows}
+    employee_by_id = {employee.id: employee for _record, employee in attendance_rows}
+    for shift in shifts:
+        if shift.employee_id not in employee_by_id:
+            employee = db.get(User, shift.employee_id)
+            if employee:
+                employee_by_id[employee.id] = employee
+    write_audit(db, admin.id, "generate_department_report", "department", department_code.value)
     db.commit()
     return {
-        "department": department.value,
+        "department": department_code.value,
         "period": {"from": from_at, "to": to_at},
         "activity_count": activity_count,
         "activities": [
@@ -566,16 +741,24 @@ def department_report(
         ],
         "shift_assignments": [
             {"id": str(shift.id), "employee_id": str(shift.employee_id),
-             "shift_start_at": shift.shift_start_at, "shift_end_at": shift.shift_end_at}
+             "employee_name": employee_by_id.get(shift.employee_id).full_name if employee_by_id.get(shift.employee_id) else None,
+             "employee_username": employee_by_id.get(shift.employee_id).username if employee_by_id.get(shift.employee_id) else None,
+             "employee_id_number": employee_by_id.get(shift.employee_id).id_number if employee_by_id.get(shift.employee_id) else None,
+             "duties": employee_by_id.get(shift.employee_id).duties if employee_by_id.get(shift.employee_id) else None,
+             "shift_start_at": shift.shift_start_at, "shift_end_at": shift.shift_end_at,
+             "attendance": ({"clock_in_at": attendance_by_shift[shift.id].clock_in_at,
+                             "clock_out_at": attendance_by_shift[shift.id].clock_out_at}
+                            if shift.id in attendance_by_shift else None)}
             for shift in shifts
         ],
+        "front_desk_reservations": _front_desk_report(db, from_at, to_at) if department_code == DepartmentCode.front_desk else None,
     }
 
 
-@app.get("/api/v1/manager/reports/summary")
+@app.get("/api/v1/gm/reports/summary")
 def admin_summary(db: Db, admin: AdminUser):
     summary = []
-    for department in OPERATIONAL_DEPARTMENTS:
+    for department in DEPARTMENT_CODES:
         activity_count = db.scalar(select(func.count(DepartmentActivity.id)).where(DepartmentActivity.department == department)) or 0
         expense_count = db.scalar(select(func.count(Expense.id)).where(Expense.department == department)) or 0
         pending_expense_count = db.scalar(
@@ -604,10 +787,10 @@ def admin_summary(db: Db, admin: AdminUser):
     return {"departments": summary}
 
 
-@app.get("/api/v1/manager/reports/attendance")
+@app.get("/api/v1/gm/reports/attendance")
 def attendance_report(db: Db, admin: AdminUser, from_at: datetime | None = None, to_at: datetime | None = None):
     report = []
-    for department in OPERATIONAL_DEPARTMENTS:
+    for department in DEPARTMENT_CODES:
         shifts_query = select(func.count(ShiftAssignment.id)).where(ShiftAssignment.department == department)
         records_query = (
             select(func.count(AttendanceRecord.id))
@@ -633,7 +816,7 @@ def attendance_report(db: Db, admin: AdminUser, from_at: datetime | None = None,
     return {"period": {"from": from_at, "to": to_at}, "departments": report}
 
 
-@app.get("/api/v1/manager/audit-logs")
+@app.get("/api/v1/gm/audit-logs")
 def audit_logs(db: Db, admin: AdminUser, limit: int = 100):
     safe_limit = max(1, min(limit, 500))
     entries = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(safe_limit)).all()

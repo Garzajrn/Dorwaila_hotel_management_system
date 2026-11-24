@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     access_token_minutes: int = 30
     reporting_currency: str = "SLE"
     hotel_timezone: str = "Africa/Freetown"
+    gm_setup_key: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

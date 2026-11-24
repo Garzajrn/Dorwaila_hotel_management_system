@@ -1,3 +1,4 @@
+import enum
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
@@ -9,20 +10,69 @@ from app.models import BookingChannel, DepartmentCode, ExpenseStatus, PaymentMet
 SUPPORTED_CURRENCIES = {"SLE", "USD", "EUR"}
 
 
+class ActiveDepartmentCode(str, enum.Enum):
+    admin_finance = "admin_finance"
+    front_desk = "front_desk"
+    kitchen = "kitchen"
+    housekeeping = "housekeeping"
+    bar = "bar"
+    security = "security"
+    storekeeping = "storekeeping"
+    operations = "operations"
+
+
+class GeneralManagerRegistration(BaseModel):
+    full_name: str = Field(min_length=2, max_length=160)
+    address: str = Field(min_length=3, max_length=500)
+    email: str = Field(min_length=3, max_length=320)
+    id_number: str = Field(min_length=2, max_length=120)
+    username: str = Field(min_length=3, max_length=80)
+    password: str = Field(min_length=12, max_length=256)
+    shift_start_at: datetime
+    shift_end_at: datetime
+
+    @model_validator(mode="after")
+    def validate_shift(self):
+        if self.shift_start_at.utcoffset() is None or self.shift_end_at.utcoffset() is None:
+            raise ValueError("shift timestamps must include a timezone offset")
+        if self.shift_end_at <= self.shift_start_at:
+            raise ValueError("shift_end_at must be after shift_start_at")
+        return self
+
+
 class UserCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     full_name: str = Field(min_length=2, max_length=160)
+    address: str = Field(min_length=3, max_length=500)
+    id_number: str = Field(min_length=2, max_length=120)
+    username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=12, max_length=256)
-    department: DepartmentCode
+    department: ActiveDepartmentCode
+    duties: str = Field(min_length=5, max_length=5000)
+    shift_start_at: datetime
+    shift_end_at: datetime
+    shift_notes: str | None = Field(default=None, max_length=2000)
     expense_approver: bool = False
+
+    @model_validator(mode="after")
+    def validate_shift(self):
+        if self.shift_start_at.utcoffset() is None or self.shift_end_at.utcoffset() is None:
+            raise ValueError("shift timestamps must include a timezone offset")
+        if self.shift_end_at <= self.shift_start_at:
+            raise ValueError("shift_end_at must be after shift_start_at")
+        return self
 
 
 class UserRead(BaseModel):
     id: UUID
     email: str
     full_name: str
+    address: str | None
+    id_number: str | None
+    username: str | None
+    duties: str | None
     department: DepartmentCode | None
-    is_general_manager: bool = Field(validation_alias="is_admin")
+    is_admin: bool
     is_active: bool
     expense_approver: bool
     created_at: datetime
@@ -213,7 +263,7 @@ class PaymentRead(BaseModel):
 
 
 class ExpenseCreate(BaseModel):
-    department: DepartmentCode | None = None
+    department: ActiveDepartmentCode | None = None
     description: str = Field(min_length=3, max_length=3000)
     payee: str | None = Field(default=None, max_length=180)
     amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
