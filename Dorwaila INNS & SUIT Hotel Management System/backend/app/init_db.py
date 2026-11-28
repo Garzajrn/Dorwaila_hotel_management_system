@@ -12,6 +12,7 @@ def add_missing_user_columns() -> None:
     additions = {
         "username": "VARCHAR(80)",
         "address": "VARCHAR(500)",
+        "contact_number": "VARCHAR(40)",
         "id_number": "VARCHAR(120)",
         "duties": "TEXT",
     }

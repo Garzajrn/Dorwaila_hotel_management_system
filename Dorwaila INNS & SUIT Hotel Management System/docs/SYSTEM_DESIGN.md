@@ -1,401 +1,74 @@
 # DORWAILA INN'S & SUIT HOTEL Management System
 
-## 1. Purpose
+**Location:** Reservation Road, Kenema
+**Purpose:** Secure hotel records for guest reservations, staff and shifts, department operations, payments, expenditure, attendance, and leave.
 
-This document defines the initial requirements and API design for a web-based hotel records system. The system centralizes hotel operations, department activity, guest reservations, payments, expenses, inventory, and administrative reporting.
+## Users, roles, and account setup
 
-<<<<<<< ours
-### Users
+The first General Manager (GM) registers once through a protected first-run setup page. The installer supplies a one-time `GM_SETUP_KEY`; registration is disabled after the first GM exists. The form is prefilled with the supplied John Vandi name, email, contact, staff ID and username. The manager enters the password and first shift details in the form. The GM can create and deactivate department accounts, assign duties and shifts, schedule staff, and access all department reports from the manager dashboard. Deactivation is used instead of permanent deletion so historical records remain available for audit.
 
-- Admin
-- General Manager
-- Human Resource Management
-- Front Desk / Reception
-- Kitchen Management
-- Housekeeping Management
-- Bar Attendant Management
-- Security Management
-=======
-### Departments and users
+Account fields are name, address, contact number (optional for staff; required for the GM setup form), email, ID number, username, password, department, assigned duties, and shift start/end. Passwords are hashed before storage and never returned from the API. The hotel address may be used for the GM's work address if appropriate; the manager's personal address and shift dates must be supplied during setup.
 
-- General Manager
-- Admin & Finance
-- Front Desk / Reception
-- Kitchen Management
-- Housekeeping Management
-- Bar Attendance Management
-- Security System Management
->>>>>>> theirs
-- Storekeeping / Warehouse Management
+Department accounts can read and create operational records only in their own department. Admin & Finance has specific HR operations for staff attendance corrections and leave tracking. That does not grant it access to GM report endpoints. Staff can view their own shifts and attendance and submit their own leave requests. The GM and Admin & Finance can review leaves; neither may approve their own leave. Only the GM can create accounts, schedule shifts, and generate all-department reports.
 
-### Initial assumptions
+## Department responsibilities
 
-- The first release serves one hotel location.
-- The supported currencies are SLE, USD, and EUR. Use ISO-style three-letter currency codes in data and APIs.
-- SLE is the default reporting currency. Preserve every transaction's original currency and amount.
-<<<<<<< ours
-- There is no public staff registration. The first Admin account is securely provisioned during installation; Admin creates all subsequent staff accounts.
-- Only Admin can access or generate reports that cover all departments.
-- Admin and HR users assigned the `expense_approver` permission can approve or reject expense submissions. This permission does not grant report access.
-=======
-- There is no public staff registration. A system Admin account is securely provisioned during installation; only Admin creates or deactivates accounts for the eight listed departments.
-- Only Admin can access or generate reports that cover all departments. The General Manager is a department account and does not receive system Admin privileges.
-- Admin and Admin & Finance accounts assigned the `expense_approver` permission can approve or reject expense submissions. Finance approval does not grant report access.
->>>>>>> theirs
-
-## 2. Functional requirements
-
-### 2.1 Authentication and accounts
-
-- Staff sign in using an account created by Admin.
-<<<<<<< ours
-- Admin can create accounts, assign one or more department roles, change permissions, disable accounts, and restore disabled accounts.
-=======
-- Admin can create department accounts, grant expense approval to Admin & Finance accounts, deactivate accounts, and restore deactivated accounts.
->>>>>>> theirs
-- Disabled accounts cannot sign in. Their historical records remain available for audit and reporting.
-- Record account creation, disabling, restoration, role changes, sign-ins, and failed sign-in attempts.
-
-### 2.2 Department operations
-
-- Staff can create and update records for their assigned department according to role permissions.
-- Department activity records include the department, date/time, description, creator, and relevant status.
-- Admin can access all department records.
-<<<<<<< ours
-- General Manager has operational access as assigned but does not receive cross-department report access by default.
-
-### 2.3 Reservations and front desk
-=======
-- Every signed-in account receives a department welcome message containing the hotel name, Dorwaila Avenue address, department name, and reservation API link.
-
-### 2.3 Attendance and shift scheduling
-
-- Admin assigns a shift to an active staff account, with start/end timestamps and optional notes.
-- The system rejects a shift that overlaps another assigned shift for the same worker.
-- Staff can view their own shifts and attendance records, then clock in and clock out for an active assigned shift.
-- Staff cannot submit attendance for another user. Admin can access all attendance records and generate cross-department attendance reports.
-- Attendance records preserve the server timestamp and the assigned shift; corrections should be auditable.
-
-### 2.4 Reservations and front desk
->>>>>>> theirs
-
-Each reservation records:
-
-- Guest name, phone number, and email address
-<<<<<<< ours
-- Room or rooms reserved
-=======
-- Room reserved
->>>>>>> theirs
-- Check-in and check-out dates and times
-- Booking channel: `online`, `walk_in`, `phone`, `travel_agent`, or `other`
-- Automatic creation timestamp (`recorded_at`) and creating staff member
-- Status: `pending`, `confirmed`, `checked_in`, `checked_out`, or `cancelled`
-- Agreed room price and currency
-- Notes where needed
-
-The system checks room availability before confirming the reservation and prevents overlapping confirmed stays for the same room. A reservation may have multiple payment records, allowing deposits, installments, refunds, or payments using different methods.
-
-Payment methods: `cash`, `cheque`, `bank_transfer`, and `online`.
-
-- Cheque: record cheque number and bank.
-- Bank transfer: record bank and transaction reference.
-- Online: record provider and transaction reference.
-- Cash: record amount received and date/time.
-- For every method, record amount, currency, status, payment timestamp, and staff member recording it.
-- Never store full payment card numbers, security codes, or online banking credentials.
-
-<<<<<<< ours
-### 2.4 Expenses
-
-- Department staff submit an expense with department, description, amount, currency, date, payee where applicable, and optional receipt attachment.
-- New expenses start as `pending`.
-- Admin or an HR account with `expense_approver` permission may approve or reject a pending expense and add a decision note.
-=======
-### 2.5 Expenses
-
-- Department staff submit an expense with department, description, amount, currency, date, payee where applicable, and optional receipt attachment.
-- New expenses start as `pending`.
-- Admin or an Admin & Finance account with `expense_approver` permission may approve or reject a pending expense and add a decision note.
->>>>>>> theirs
-- Store the approver and decision timestamp. Do not allow the submitter to approve their own expense unless they separately hold an authorized approval role; log any such decision.
-- Approved expenses are included in financial reports. Pending and rejected items remain visible with their status.
-- Approved transactions are corrected through traceable adjustments or reversal entries, not silent deletion.
-
-<<<<<<< ours
-### 2.5 Inventory
-=======
-### 2.6 Inventory
->>>>>>> theirs
-
-- Storekeeping manages item records, suppliers, receipts, issues to departments, adjustments, and reorder thresholds.
-- Each stock transaction records item, quantity, transaction type, destination/source department, timestamp, and user.
-- Stock balances are calculated from transactions and are auditable.
-
-<<<<<<< ours
-### 2.6 Reports
-
-- Only Admin can view or generate cross-department reports, finance summaries, and report exports.
-- Reports support a date range and relevant department/status filters.
-- Department users may view their operational records as allowed by role but do not receive a reporting permission by default.
-- HR expense approval does not grant access to reports.
-=======
-### 2.7 Reports
-
-- Only Admin can view or generate cross-department reports, finance summaries, attendance summaries, and report exports.
-- Reports support a date range and relevant department/status filters.
-- Department users may view their operational records as allowed by role but do not receive a reporting permission by default.
-- Admin & Finance expense approval does not grant access to reports.
->>>>>>> theirs
-- Every generated report is logged with the Admin account, report type, filters, and generation timestamp.
-- Financial reports show original-currency totals separately. Consolidated SLE totals use a stored exchange-rate record containing rate, effective date, source, and entered-by user. Historical rates are not overwritten.
-
-## 3. Roles and permission outline
-
-<<<<<<< ours
-| Permission | Admin | Department staff | HR expense approver |
-|---|---:|---:|---:|
-| Create/disable staff accounts | Yes | No | No, unless also Admin |
-| Manage all departments | Yes | No | No |
-| Record assigned department activity | Yes | Assigned department | HR records as assigned |
-| Submit department expenses | Yes | Assigned department | HR records as assigned |
-| Approve/reject expenses | Yes | No by default | Yes |
-=======
-| Permission | System Admin | General Manager / department staff | Admin & Finance approver |
-|---|---:|---:|---:|
-| Create/deactivate department accounts | Yes | No | No |
-| Manage all departments | Yes | No | No |
-| Record assigned department activity | Yes | Assigned department | Admin & Finance |
-| Submit department expenses | Yes | Assigned department | Yes |
-| Approve/reject expenses | Yes | No by default | If granted permission |
-| Assign shifts | Yes | No | No |
-| View own shifts and attendance | Yes | Yes | Yes |
->>>>>>> theirs
-| View/generate all-department reports | Yes | No | No |
-| View audit log | Yes | No | No |
-
-Authorization must be checked by the API for every request. Hiding a button in the web interface is not an access control.
-
-## 4. Recommended architecture
-
-Use a modular monolith for the first release: one web application and one API organized into modules, backed by a relational database. This keeps deployment and maintenance manageable for one hotel while preserving clear module boundaries.
-
-- Web client: React with TypeScript, responsive for desktop and mobile browsers.
-- API: Python with FastAPI, REST/JSON, and OpenAPI documentation.
-- Database: PostgreSQL with migrations and foreign-key constraints.
-- File storage: private object storage or a protected server volume for receipts and attachments.
-- Deployment: HTTPS, managed server or cloud host, automated database and attachment backups, and documented restore procedures.
-
-## 5. API conventions
-
-- Prefix: `/api/v1`
-- JSON request and response bodies; timestamps use ISO 8601 with timezone offsets and are stored consistently in UTC.
-- Use UUIDs for public resource IDs.
-- Use pagination for list endpoints (`limit`, `cursor`) and stable sorting.
-- Return standard HTTP status codes and a consistent error shape, for example `{ "error": { "code": "forbidden", "message": "You do not have permission to perform this action." } }`.
-- Validate all input on the server, including enum values, currency codes, positive amounts, email format, date ordering, room availability, and payment-method-specific fields.
-- Use idempotency keys for payment recording where duplicate submissions are possible.
-
-## 6. Main endpoint groups
-
-| Method and path | Purpose | Access |
+| Department | Main responsibilities recorded in the system | Access boundary |
 |---|---|---|
-<<<<<<< ours
-| `POST /api/v1/auth/login` | Sign in | All users |
-| `POST /api/v1/auth/logout` | Sign out | Signed-in user |
-| `GET /api/v1/auth/me` | Get current account and permissions | Signed-in user |
-| `GET /api/v1/admin/users` | List staff accounts | Admin |
-| `POST /api/v1/admin/users` | Create account and assign role | Admin |
-| `PATCH /api/v1/admin/users/{user_id}` | Change role or account status | Admin |
-| `GET /api/v1/rooms` | List rooms and availability | Front Desk; Admin |
-| `POST /api/v1/reservations` | Create reservation | Front Desk; Admin |
-| `GET /api/v1/reservations/{reservation_id}` | View reservation | Front Desk; Admin |
-| `PATCH /api/v1/reservations/{reservation_id}` | Update permitted reservation fields/status | Front Desk; Admin |
-| `POST /api/v1/reservations/{reservation_id}/payments` | Record payment or refund | Front Desk; Admin |
-| `POST /api/v1/departments/{department_id}/activities` | Record department activity | Assigned department; Admin |
-| `POST /api/v1/expenses` | Submit expense | Assigned department; Admin |
-| `GET /api/v1/expenses` | List expenses within permitted scope | Department scope; Admin |
-| `POST /api/v1/expenses/{expense_id}/decision` | Approve or reject expense | Admin; HR with `expense_approver` |
-| `POST /api/v1/inventory/transactions` | Receive, issue, or adjust stock | Storekeeping; Admin |
-| `GET /api/v1/admin/reports/summary` | Cross-department dashboard data | Admin only |
-| `GET /api/v1/admin/reports/finance` | Income and expense report | Admin only |
-| `GET /api/v1/admin/reports/departments/{department_id}` | Department activity report | Admin only |
-=======
-| `POST /api/v1/auth/token` | Sign in and receive an access token | All users |
-| `GET /api/v1/auth/me` | Get current account and permissions | Signed-in user |
-| `GET /api/v1/welcome` | Department welcome and reservation link | Signed-in user |
-| `GET/POST /api/v1/admin/users` | List/create department accounts | Admin only |
-| `DELETE /api/v1/admin/users/{user_id}` | Deactivate account while preserving history | Admin only |
-| `GET /api/v1/rooms` | List rooms and availability | Front Desk; Admin |
-| `POST /api/v1/reservations` | Create reservation | Front Desk; Admin |
-| `GET /api/v1/reservations/{reservation_id}` | View reservation | Front Desk; Admin |
-| `POST /api/v1/reservations/{reservation_id}/payments` | Record payment | Front Desk; Admin |
-| `POST /api/v1/departments/{department}/activities` | Record department activity | Assigned department; Admin |
-| `POST /api/v1/attendance/shifts` | Assign a shift | Admin only |
-| `GET /api/v1/attendance/shifts` | View own shifts, or all schedules for Admin | Signed-in user; Admin |
-| `POST /api/v1/attendance/clock-in` and `/clock-out` | Record own attendance | Signed-in staff |
-| `GET /api/v1/attendance/my/records` | View own attendance history | Signed-in user |
-| `POST /api/v1/expenses` | Submit expense | Assigned department; Admin |
-| `POST /api/v1/expenses/{expense_id}/decision` | Approve/reject expense | Admin; Admin & Finance approver |
-| `GET /api/v1/admin/reports/summary` | Cross-department operations summary | Admin only |
-| `GET /api/v1/admin/reports/finance` | Income and expense report | Admin only |
-| `GET /api/v1/admin/reports/attendance` | Attendance report by department | Admin only |
-| `GET /api/v1/admin/reports/departments/{department}` | Department activity report | Admin only |
->>>>>>> theirs
-| `GET /api/v1/admin/audit-logs` | Review security and record history | Admin only |
+| General Manager | Direct hotel operations and service quality; create/deactivate accounts; assign duties and work shifts; review expenditure and leave decisions; monitor attendance; inspect audit history; generate department, staff, shift, finance, reservation, and attendance reports. | Sole global account manager, scheduler, and cross-department report user. |
+| Admin & Finance Management | Record invoices and expenditures; document cash, cheque, bank and online payments; reconcile receipts; maintain finance records; manage staff attendance corrections and leave updates; approve/reject expenditure when the GM grants the approver permission. | Finance and specific HR operations; no account administration or global report generation. |
+| Front Desk Staff / Receptionist | Record guest name, phone and email; create bookings; select rooms and booking method; track check-in/out and reservation status; record payments with currency and method, and bank, cheque or online reference details. | Front Desk reservations, guest and payment records only. |
+| Kitchen Management | Plan food preparation; log hygiene/food safety checks, meal service, ingredient use, waste, supply requests, incidents and kitchen expenses. | Kitchen operations and expenditure only. |
+| Housekeeping Management | Schedule and record room cleaning/readiness, linen and amenity use, inspections, lost property, damage, maintenance requests and housekeeping expenses. | Housekeeping operations and expenditure only. |
+| Bar Attendance Management | Record bar service and sales activity, payment reconciliation, stock consumption/waste, responsible-service incidents and bar expenses. | Bar operations and expenditure only. |
+| Security System Management | Record patrols, key/access control, safety checks, incidents, emergency responses, shift handovers and security expenses. | Security records only; CCTV footage remains separately controlled. |
+| Storekeeping / Warehouse Management | Record deliveries, stock receipts/issues, counts, damaged/expired goods, reorder needs, authorized department requisitions and supporting expenses. | Warehouse records only. Item-level stock ledger is a planned extension. |
+| Operations Management | Coordinate maintenance and facilities; log faults, service requests, utilities, equipment checks, quality inspections, follow-ups and operational expenditure. | Operations records only. |
 
-## 7. Example reservation request
+Assigned duties are recorded in the staff account and shown in GM shift reports. Department boundaries are enforced by API checks. Further per-task permission codes should be added as operations grow beyond the current department-level access model.
 
-```json
-{
-  "guest": {
-    "name": "Aminata Kamara",
-    "phone": "+232XXXXXXXX",
-    "email": "aminata@example.com"
-  },
-<<<<<<< ours
-  "room_ids": ["room-uuid"],
-  "check_in_at": "2026-12-10T14:00:00+00:00",
-  "check_out_at": "2026-12-12T11:00:00+00:00",
-  "booking_channel": "online",
-  "room_rate": {
-    "amount": "125.00",
-    "currency": "USD"
-  },
-=======
-  "room_id": "room-uuid",
-  "check_in_at": "2026-12-10T14:00:00+00:00",
-  "check_out_at": "2026-12-12T11:00:00+00:00",
-  "booking_channel": "online",
-  "room_rate": "125.00",
-  "currency": "USD",
->>>>>>> theirs
-  "notes": "Late arrival"
-}
-```
+## Records and report rules
 
-<<<<<<< ours
-The server sets `recorded_at`, `created_by`, and the initial status. Monetary amounts are decimal strings in JSON to avoid floating-point rounding errors.
-=======
-## 7.1 Example shift assignment
+- **Reservations:** Guest contacts, room, check-in/out, booking channel (online, walk-in, phone, travel agent, other), status, room rate/currency, and record time.
+- **Payments:** Amount and original currency, method (cash, cheque, bank transfer, online), status and paid time. Cheque records require bank and cheque numbers; bank transfer and online payments require a transaction reference. Never store card numbers or security codes.
+- **Expenses:** Department, description, payee, amount, currency, submitter, submission time, status and approval decision. A submitter cannot approve their own expense.
+- **Attendance:** Each record links to an assigned shift and worker. Staff clock their own time; authorized Admin & Finance users may correct or record attendance with a required note and audit log.
+- **Staff leave:** Employee, start/end, reason, status, submitter, reviewer, review time and decision note. Staff can create their own requests; Admin & Finance and the GM can maintain decisions.
+- **Currency:** SLE, USD and EUR. Totals remain grouped by currency until an approved, auditable exchange-rate table is implemented.
+- **Reports:** GM-only report APIs cover activities, expenditure, payment methods, guest/reservation detail, employees, duties, shifts and attendance. Admin & Finance HR pages are operational record forms, not cross-department report generation.
 
-The system Admin assigns a shift to an existing employee account:
+## API map
 
-```json
-{
-  "employee_id": "employee-uuid",
-  "shift_start_at": "2026-12-10T08:00:00+00:00",
-  "shift_end_at": "2026-12-10T16:00:00+00:00",
-  "notes": "Day shift"
-}
-```
+| Endpoint | Purpose | Access |
+|---|---|---|
+| `GET /setup`, `POST /api/v1/auth/register-general-manager` | First GM registration | One-time; POST requires setup key |
+| `POST /api/v1/auth/token`, `GET /api/v1/auth/me`, `GET /api/v1/welcome` | Login/profile/welcome | Public login; authenticated profile |
+| `GET /login`, `GET /dashboard` | Login and staff dashboard | Dashboard data requires bearer token |
+| `GET/POST /api/v1/gm/accounts`; `/api/v1/gm/accounts/{id}` | Create/list/deactivate/restore staff accounts | GM only |
+| `/api/v1/rooms`, `/api/v1/reservations`, `/api/v1/reservations/{id}/payments` | Front Desk operations | Front Desk and GM |
+| `/api/v1/departments/{department}/activities` | Department activity | Assigned department; GM may access across departments |
+| `/api/v1/attendance/shifts`, `/api/v1/attendance/clock-in`, `/clock-out` | Scheduling and employee attendance | GM schedules; staff records own attendance |
+| `/api/v1/hr/staff`, `/api/v1/hr/shifts`, `/api/v1/hr/attendance` | Attendance form and corrections | Admin & Finance and GM |
+| `/api/v1/hr/leaves` and `/api/v1/hr/leaves/{id}/decision` | Submit and update leave requests | Staff own request; Admin & Finance/GM review |
+| `/api/v1/expenses` | Submit and decide expenditures | Assigned department submits; GM/authorized finance approves |
+| `/api/v1/gm/reports/summary`, `/finance`, `/attendance`, `/departments/{department}` | Cross-department reporting | GM only |
 
-The department is derived from the employee account; the client cannot assign someone to a different department.
->>>>>>> theirs
+## Architecture and deployment
 
-### Example payment request
+- FastAPI with Pydantic request validation and SQLAlchemy data access.
+- PostgreSQL for hosted multi-user use; SQLite only for local learning.
+- Signed bearer tokens and one-way password hashes; authorization checks at each protected API route.
+- Render web service and PostgreSQL for deployment. Keep secrets in environment variables, use HTTPS, and configure backups before real use.
 
-```json
-{
-  "amount": "50.00",
-  "currency": "USD",
-  "method": "cheque",
-  "cheque_number": "CHQ-1042",
-  "bank_name": "Example Bank",
-  "paid_at": "2026-12-01T10:30:00+00:00"
-}
-```
+## Completion checks
 
-Fields such as `cheque_number` are required for cheque payments, while online payments require a transaction reference. Do not accept or store card security codes.
+1. First-run GM registration requires the setup key and closes after initial registration.
+2. The GM can create staff accounts with department, duties, and shift details; deactivated accounts cannot sign in.
+3. Staff cannot write operational activity or expenditure for another department.
+4. Only the GM can access cross-department reporting and account management.
+5. The Admin & Finance dashboard can view and update staff attendance and leave records; each change is audited.
+6. Reservation records preserve guest, room, stay, channel, and payment method/reference details in SLE, USD or EUR.
 
-<<<<<<< ours
-## 8. Core data model
+## Current limits
 
-- `users`: account identity, password hash, status, timestamps.
-- `roles` and `permissions`: named roles and permission assignments.
-- `user_roles`: user-to-role assignments, scoped to department where applicable.
-- `departments`: the eight hotel departments.
-=======
-The server sets a reservation's `recorded_at`, `created_by`, and initial status. Monetary amounts are decimal strings in JSON to avoid floating-point rounding errors.
-
-## 8. Core data model
-
-- `users`: account identity, password hash, department, system Admin and expense-approver flags, status, timestamps.
-- `roles` and `permissions`: named roles and permission assignments.
-- `user_roles`: user-to-role assignments, scoped to department where applicable.
-- `departments`: the eight departments listed for this hotel.
->>>>>>> theirs
-- `guests`: name, phone, email, timestamps.
-- `rooms`: room number, type, capacity, and operational status.
-- `reservations`: guest, booking channel, stay timestamps, status, creator, recorded timestamp.
-- `reservation_rooms`: reservation-to-room links and agreed room rates.
-- `payments`: reservation, amount, currency, method, reference details, status, recorded-by, paid-at.
-- `department_activities`: department-specific activity and creator.
-<<<<<<< ours
-=======
-- `shift_assignments`: employee, department, shift start/end, scheduler, and notes.
-- `attendance_records`: assigned shift, employee, clock-in/out timestamps, and notes.
->>>>>>> theirs
-- `expenses`: department, amount, currency, payee, description, attachment, status, submitter.
-- `expense_decisions`: expense, decision, approver, note, timestamp.
-- `exchange_rates`: base/quote currencies, rate, effective date, source, creator.
-- `inventory_items`, `suppliers`, and `inventory_transactions`.
-- `audit_logs`: actor, action, target record, timestamp, and limited before/after change data.
-
-Use database constraints to prevent invalid amounts, invalid status values, overlapping room bookings, duplicate account names, and orphaned records. Use explicit deletion policies so account deactivation never deletes business history.
-
-## 9. Security and operational requirements
-
-- Hash passwords with a modern password hashing algorithm; never store plaintext passwords.
-- Require HTTPS and secure, HttpOnly session cookies or an equivalent secure authentication mechanism.
-<<<<<<< ours
-- Consider multi-factor authentication for Admin accounts.
-- Apply rate limits to sign-in and sensitive endpoints.
-- Restrict HR records and uploaded receipts to authorized roles; avoid exposing attachments through public URLs.
-=======
-- Consider multi-factor authentication for the system Admin account.
-- Apply rate limits to sign-in and sensitive endpoints.
-- Restrict employee records and uploaded receipts to authorized roles; avoid exposing attachments through public URLs.
->>>>>>> theirs
-- Log account changes, expense decisions, financial corrections, report generation, and permission denials.
-- Back up the database and attached documents on a schedule; test restoration as part of operations.
-- Use database migrations, environment-based secrets, and separate development/production configuration.
-
-## 10. Implementation stages
-
-1. Confirm approval thresholds, reservation cancellation/refund policy, room types, and whether offline operation is required.
-<<<<<<< ours
-2. Implement authentication, Admin account management, roles, departments, and audit logging.
-3. Implement rooms, guests, reservations, and multi-currency payments.
-4. Implement department activity, expenses, HR/Admin approval, and inventory.
-5. Implement Admin-only reporting and exports, including stored exchange-rate conversions.
-=======
-2. Implement authentication, system Admin account management, roles, departments, and audit logging.
-3. Implement rooms, guests, reservations, and multi-currency payments.
-4. Implement department activity, expenses, Admin/Admin & Finance approval, and inventory.
-5. Implement Admin-only reporting and exports, including attendance and stored exchange-rate conversions.
->>>>>>> theirs
-6. Deploy with HTTPS, backups, restore instructions, and staff training.
-
-## 11. Acceptance criteria for the first release
-
-<<<<<<< ours
-- Admin can create and disable accounts for all eight departments; disabled accounts cannot sign in and historical records remain intact.
-- A department user cannot access another department's restricted records by changing a URL or API request.
-- Only Admin can access cross-department and financial report endpoints.
-- HR with `expense_approver` can approve/reject expenses but cannot access report endpoints.
-=======
-- Admin can create and deactivate accounts for all eight departments; deactivated accounts cannot sign in and historical records remain intact.
-- A department user cannot access another department's restricted records by changing a URL or API request.
-- Only system Admin can access cross-department and financial report endpoints.
-- Admin & Finance with `expense_approver` can approve/reject expenses but cannot access report endpoints.
->>>>>>> theirs
-- Reservations store the required guest details, booking channel, room, check-in/out timestamps, and automatic record timestamp.
-- The system rejects a confirmed room reservation that overlaps another confirmed booking.
-- Payments and expenses preserve SLE, USD, or EUR amounts and capture the required method references.
-- Reports show original currency totals and use recorded exchange rates for any SLE consolidation.
-<<<<<<< ours
-=======
-- Every department account sees the hotel welcome message and reservation link; attendance endpoints enforce staff self-clock-in/out and role-scoped shift assignment.
->>>>>>> theirs
-- Account, expense, payment correction, and report actions are traceable in the audit log.
+This is an API starter with login/setup, a General Manager account/report workspace, and an Admin & Finance attendance/leave dashboard; it is not a complete property-management product. Item-level warehouse stock, payroll, leave balances, automated overtime, report exports, exchange-rate conversion, receipt attachments, refunds, database migrations, and robust concurrent room reservation locks still need implementation. Use versioned database migrations, security review, backups with restore checks, monitoring, and privacy retention rules before real hotel operations.

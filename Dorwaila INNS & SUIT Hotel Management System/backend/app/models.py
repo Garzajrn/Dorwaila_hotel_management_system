@@ -61,6 +61,12 @@ class ExpenseStatus(str, enum.Enum):
     rejected = "rejected"
 
 
+class LeaveStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
@@ -77,6 +83,7 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(80), unique=True, index=True, nullable=True)
     full_name: Mapped[str] = mapped_column(String(160))
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    contact_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
     id_number: Mapped[str | None] = mapped_column(String(120), unique=True, index=True, nullable=True)
     duties: Mapped[str | None] = mapped_column(Text, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(512))
@@ -128,6 +135,21 @@ class AttendanceRecord(Base):
     clock_in_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     clock_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class StaffLeave(Base):
+    __tablename__ = "staff_leaves"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    reason: Mapped[str] = mapped_column(Text)
+    status: Mapped[LeaveStatus] = mapped_column(Enum(LeaveStatus), default=LeaveStatus.pending, index=True)
+    submitted_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Room(Base):

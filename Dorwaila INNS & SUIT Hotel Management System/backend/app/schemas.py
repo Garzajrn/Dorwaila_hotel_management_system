@@ -5,12 +5,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models import BookingChannel, DepartmentCode, ExpenseStatus, PaymentMethod, PaymentStatus, ReservationStatus
+from app.models import BookingChannel, DepartmentCode, ExpenseStatus, LeaveStatus, PaymentMethod, PaymentStatus, ReservationStatus
 
 SUPPORTED_CURRENCIES = {"SLE", "USD", "EUR"}
 
 
 class ActiveDepartmentCode(str, enum.Enum):
+    general_manager = "general_manager"
     admin_finance = "admin_finance"
     front_desk = "front_desk"
     kitchen = "kitchen"
@@ -24,10 +25,11 @@ class ActiveDepartmentCode(str, enum.Enum):
 class GeneralManagerRegistration(BaseModel):
     full_name: str = Field(min_length=2, max_length=160)
     address: str = Field(min_length=3, max_length=500)
+    contact_number: str = Field(min_length=7, max_length=40)
     email: str = Field(min_length=3, max_length=320)
     id_number: str = Field(min_length=2, max_length=120)
     username: str = Field(min_length=3, max_length=80)
-    password: str = Field(min_length=12, max_length=256)
+    password: str = Field(min_length=11, max_length=256)
     shift_start_at: datetime
     shift_end_at: datetime
 
@@ -44,6 +46,7 @@ class UserCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     full_name: str = Field(min_length=2, max_length=160)
     address: str = Field(min_length=3, max_length=500)
+    contact_number: str | None = Field(default=None, max_length=40)
     id_number: str = Field(min_length=2, max_length=120)
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=12, max_length=256)
@@ -68,6 +71,7 @@ class UserRead(BaseModel):
     email: str
     full_name: str
     address: str | None
+    contact_number: str | None
     id_number: str | None
     username: str | None
     duties: str | None
@@ -149,6 +153,63 @@ class AttendanceRead(BaseModel):
     clock_in_at: datetime
     clock_out_at: datetime | None
     note: str | None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AttendanceCorrection(BaseModel):
+    shift_id: UUID
+    clock_in_at: datetime
+    clock_out_at: datetime | None = None
+    note: str = Field(min_length=3, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_times(self):
+        if self.clock_in_at.utcoffset() is None or (self.clock_out_at and self.clock_out_at.utcoffset() is None):
+            raise ValueError("attendance timestamps must include a timezone offset")
+        if self.clock_out_at and self.clock_out_at <= self.clock_in_at:
+            raise ValueError("clock_out_at must be after clock_in_at")
+        return self
+
+
+class StaffLeaveCreate(BaseModel):
+    employee_id: UUID | None = None
+    starts_at: datetime
+    ends_at: datetime
+    reason: str = Field(min_length=3, max_length=3000)
+
+    @model_validator(mode="after")
+    def validate_leave_dates(self):
+        if self.starts_at.utcoffset() is None or self.ends_at.utcoffset() is None:
+            raise ValueError("leave timestamps must include a timezone offset")
+        if self.ends_at <= self.starts_at:
+            raise ValueError("ends_at must be after starts_at")
+        return self
+
+
+class StaffLeaveDecision(BaseModel):
+    status: LeaveStatus
+    decision_note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("status")
+    @classmethod
+    def final_status_only(cls, value: LeaveStatus) -> LeaveStatus:
+        if value == LeaveStatus.pending:
+            raise ValueError("status must be approved or rejected")
+        return value
+
+
+class StaffLeaveRead(BaseModel):
+    id: UUID
+    employee_id: UUID
+    starts_at: datetime
+    ends_at: datetime
+    reason: str
+    status: LeaveStatus
+    submitted_by: UUID
+    submitted_at: datetime
+    reviewed_by: UUID | None
+    reviewed_at: datetime | None
+    decision_note: str | None
     model_config = ConfigDict(from_attributes=True)
 
 
